@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Image Tracking</title>
+    <!-- A-Frame: 3D framework in HTML -->
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <!-- aframe-extras: "animation-mixer" plays animations inside .glb files -->
+    <script src="https://cdn.jsdelivr.net/npm/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
+    <!-- MindAR image tracking (also includes the Compiler that turns a picture into a target) -->
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
+    <script>
+      // fit-model: scale any model to a given size and stand it at the center (same as in hiro-model)
+      AFRAME.registerComponent("fit-model", {
+        // by: "max" = the biggest side becomes `size`; "height" = the height becomes `size`
+        schema: { size: { type: "number", default: 0.6 }, by: { default: "max" } },
+        init() {
+          this.el.addEventListener("model-loaded", () => {
+            const mesh = this.el.getObject3D("mesh");
+            const parent = mesh.parent;
+            parent.remove(mesh);
+            mesh.updateMatrixWorld(true);
+            const box = new THREE.Box3().setFromObject(mesh);
+            parent.add(mesh);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+            const s = this.data.size / (this.data.by === "height" ? size.y : Math.max(size.x, size.y, size.z));
+            mesh.scale.multiplyScalar(s);
+            mesh.position.set(-center.x * s, -box.min.y * s, -center.z * s);
+          });
+        },
+      });
+    </script>
+
+    <style>
+      body { margin: 0; overflow: hidden; font-family: -apple-system, sans-serif; }
+
+      /* ---------- Start screen ---------- */
+      #start {
+        position: fixed; inset: 0; z-index: 20; overflow-y: auto;
+        background: #f4f4f7; color: #222;
+        display: flex; flex-direction: column; align-items: center; padding: 32px 16px;
+      }
+      #start h1 { margin: 0 0 6px; }
+      #start p.lead { margin: 0 0 24px; color: #666; text-align: center; max-width: 380px; }
+      .card {
+        width: 100%; max-width: 380px; box-sizing: border-box; margin: 8px 0; padding: 18px 20px;
+        background: #fff; border-radius: 14px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+      }
+      .card h2 { margin: 0 0 6px; font-size: 18px; }
+      .card p { margin: 0 0 12px; font-size: 14px; color: #666; }
+      .gallery { display: flex; gap: 8px; margin-bottom: 12px; }
+      .gallery a { flex: 1; text-align: center; font-size: 12px; color: #666; text-decoration: none; }
+      .gallery img { width: 100%; height: 90px; object-fit: cover; border-radius: 8px; display: block; margin-bottom: 4px; }
+      .btn {
+        display: inline-block; padding: 10px 16px; border: none; border-radius: 10px;
+        background: #ff3b7f; color: #fff; font-size: 15px; cursor: pointer; text-decoration: none;
+      }
+      #progress { font-size: 14px; color: #ff3b7f; margin-top: 10px; min-height: 1em; }
+      .tips { font-size: 13px; color: #888; max-width: 380px; margin-top: 12px; }
+      .tips li { margin: 4px 0; }
+      #back-menu { align-self: flex-start; color: #666; text-decoration: none; font-size: 14px; margin-bottom: 12px; }
+
+      /* ---------- AR view ---------- */
+      .pill {
+        position: fixed; top: 12px; z-index: 10; padding: 6px 12px; border-radius: 14px;
+        font-size: 14px; text-decoration: none; background: rgba(0, 0, 0, 0.6); color: #fff;
+        border: none; cursor: pointer;
+      }
+      #status { left: 50%; transform: translateX(-50%); white-space: nowrap; }
+      #preview {
+        position: fixed; top: 52px; right: 12px; z-index: 10; width: 80px;
+        border: 2px solid #fff; border-radius: 8px; display: none;
+      }
+      #anims {
+        position: fixed; bottom: 16px; left: 0; right: 0; z-index: 10;
+        display: none; gap: 8px; justify-content: center; flex-wrap: wrap; padding: 0 16px;
+      }
+      #anims button {
+        padding: 8px 14px; border: 2px solid transparent; border-radius: 18px;
+        background: rgba(255, 255, 255, 0.85); font-size: 15px; cursor: pointer; color: #222;
+      }
+      #anims button.active { border-color: #ff3b7f; background: #fff; }
+      .ar-only { display: none; }
+      /* MindAR sizes the camera video to this container, so it must fill the screen */
+      #ar-container { position: fixed; inset: 0; overflow: hidden; }
+    </style>
+  </head>
+  <body>
+    <!-- ================= START SCREEN ================= -->
+    <div id="start">
+      <a id="back-menu" href="../">← Menu</a>
+      <h1>🖼️ Image Tracking</h1>
+      <p class="lead">Point the camera at a picture and it comes to life in 3D: the Eiffel Tower or the Leaning Tower of Pisa.</p>
+
+      <div class="card">
+        <h2>1. Ready-made pictures</h2>
+        <p>Open any of these on another screen (or print it), then start. Tap a picture to open it full size.</p>
+        <div class="gallery" id="gallery"></div>
+        <button class="btn" id="use-sample">▶ Start</button>
+      </div>
+
+      <div class="card">
+        <h2>2. Your own picture</h2>
+        <p>A book cover, poster, photo, packaging… The page prepares it for tracking (10–60 seconds). A dancing robot appears on it.</p>
+        <label class="btn" for="file">📷 Choose picture</label>
+        <input id="file" type="file" accept="image/*" hidden />
+        <div id="progress"></div>
+      </div>
+
+      <ul class="tips">
+        <li>✅ Good pictures: lots of detail, sharp edges, strong contrast (posters, book covers, photos with texture).</li>
+        <li>❌ Bad pictures: plain colors, simple logos, repeating patterns, very dark images.</li>
+        <li>Keep the picture flat and well lit, and show the whole picture to the camera.</li>
+      </ul>
+
+      <!-- Credits (required by the CC BY 4.0 license of the 3D models) -->
+      <p class="tips">
+        3D models (CC BY 4.0, compressed for the web):
+        <a href="https://sketchfab.com/3d-models/eiffel-tower-toshueyi-3a1c5d841d424ee8a8c18ae077473e41" target="_blank">Eiffel Tower</a> by Joanthan To ·
+        <a href="https://sketchfab.com/3d-models/leaning-tower-of-pisa-f0456bc36bdc4bfd8890f0dfdaf86656" target="_blank">Leaning tower of Pisa</a> by Aglaiapoulida
+      </p>
+    </div>
+
+    <!-- ================= AR VIEW (shown after start) ================= -->
+    <button class="pill ar-only" style="left: 12px;" onclick="location.reload()">← Change picture</button>
+    <div class="pill ar-only" id="status">⏳ Starting camera…</div>
+    <a class="pill" id="save" style="right: 12px; display: none;" download="my-target.mind">💾 Save target</a>
+    <img id="preview" alt="Your target picture" />
+    <div id="anims">
+      <!-- Robot animation buttons: only shown for your own picture (the robot) -->
+      <button class="robot-only active" data-clip="Dance">💃 Dance</button>
+      <button class="robot-only" data-clip="Wave">👋 Wave</button>
+      <button class="robot-only" data-clip="Jump">🦘 Jump</button>
+      <button class="robot-only" data-clip="ThumbsUp">👍 Thumbs up</button>
+      <button id="spin">⏸️ Stop spin</button>
+      <button id="mode" title="Is the picture upright (screen) or lying flat (table)?">🖥️ Screen mode</button>
+    </div>
+    <div id="ar-container"></div>
+
+    <script>
+      // ---------- 1. Ready-made pictures ----------
+      // All three are compiled together into targets/targets.mind, in this exact order
+      // (targetIndex 0, 1, 2). aspect = height / width of each picture.
+      // model = which 3D model to show (models/<model>.glb); scale = extra size multiplier.
+      const READY_TARGETS = [
+        { label: "Eiffel Tower", image: "targets/eiffel.jpg", aspect: 553 / 554, model: "eiffel", scale: 1.0 },
+        { label: "Leaning Tower of Pisa", image: "targets/pisa.jpg", aspect: 515 / 388, model: "pisa", scale: 1.0 },
+      ];
+
+      const gallery = document.getElementById("gallery");
+      READY_TARGETS.forEach((t) => {
+        gallery.insertAdjacentHTML("beforeend",
+          `<a href="${t.image}" target="_blank"><img src="${t.image}" alt="${t.label}">${t.label}</a>`);
+      });
+
+      document.getElementById("use-sample").addEventListener("click", () => {
+        startAR({ mindUrl: "targets/targets.mind", targets: READY_TARGETS });
+      });
+
+      // ---------- 2. Own picture: compile it to a .mind target in the browser ----------
+      const progress = document.getElementById("progress");
+      document.getElementById("file").addEventListener("change", async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          progress.textContent = "Loading picture…";
+          const original = await loadImage(URL.createObjectURL(file));
+
+          // Big photos take very long to compile, so shrink to max 1000 px
+          const scale = Math.min(1, 1000 / Math.max(original.width, original.height));
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.round(original.width * scale);
+          canvas.height = Math.round(original.height * scale);
+          canvas.getContext("2d").drawImage(original, 0, 0, canvas.width, canvas.height);
+          const image = await loadImage(canvas.toDataURL("image/jpeg", 0.92));
+
+          // MindAR's Compiler finds the picture's feature points and saves them as a ".mind" file
+          const compiler = new window.MINDAR.IMAGE.Compiler();
+          await compiler.compileImageTargets([image], (percent) => {
+            progress.textContent = `Preparing picture for tracking… ${Math.round(percent)}%`;
+          });
+          const mindUrl = URL.createObjectURL(new Blob([compiler.exportData()]));
+
+          startAR({
+            mindUrl,
+            targets: [{ label: "Hello AR!", image: image.src, aspect: image.height / image.width }],
+            showPreview: true,
+            canSave: true,
+          });
+        } catch (err) {
+          console.error(err);
+          progress.textContent = "❌ Could not prepare this picture. Try another one.";
+        }
+      });
+
+      function loadImage(src) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = src;
+        });
+      }
+
+      // ---------- Content shown on one picture ----------
+      // MindAR makes each picture 1 unit wide (height = aspect). x = right, y = up the picture, z = out of the picture.
+      function targetContent(index, { label, aspect, model, scale = 1 }) {
+        const h = aspect;
+        const t = 0.02; // frame thickness
+        const anim = "property: material.color; from: #ff3b7f; to: #ffd93b; dir: alternate; loop: true; dur: 800";
+
+        // The 3D content: a real model from models/, or the robot for your own picture
+        // - model:  loads models/<model>.glb (a real 3D model, sized so it is 0.9 tall)
+        const content = model
+          ? `<a-entity gltf-model="url(models/${model}.glb)" fit-model="size: 0.9; by: height"></a-entity>`
+          : `<a-entity gltf-model="url(../hiro-model/models/robot.glb)" fit-model="size: ${Math.min(0.6, h)}"
+               class="robot" animation-mixer="clip: Dance; loop: repeat; crossFadeDuration: 0.3"></a-entity>`;
+
+        return `
+          <a-entity class="target" mindar-image-target="targetIndex: ${index}" data-label="${label}">
+            <!-- Glowing frame around the picture -->
+            <a-box position="0 ${h / 2} 0" width="${1 + t * 2}" height="${t}" depth="${t}" animation="${anim}"></a-box>
+            <a-box position="0 ${-h / 2} 0" width="${1 + t * 2}" height="${t}" depth="${t}" animation="${anim}"></a-box>
+            <a-box position="-0.5 0 0" width="${t}" height="${h}" depth="${t}" animation="${anim}"></a-box>
+            <a-box position="0.5 0 0" width="${t}" height="${h}" depth="${t}" animation="${anim}"></a-box>
+
+            <!-- placement: where the model stands (changed by Screen/Table mode, see setMode) -->
+            <a-entity class="placement" data-h="${h}">
+              <!-- pop: grows from nothing when the picture is found -->
+              <a-entity class="pop" scale="${scale} ${scale} ${scale}"
+                animation__pop="property: scale; from: 0.001 0.001 0.001; to: ${scale} ${scale} ${scale}; dur: 700; easing: easeOutBack; startEvents: pop">
+                <!-- spinner: turns slowly so you can see it is really 3D -->
+                <a-entity class="spinner" animation="property: rotation; from: 0 0 0; to: 0 360 0; loop: true; dur: 20000; easing: linear">
+                  ${content}
+                </a-entity>
+              </a-entity>
+            </a-entity>
+
+            <!-- Caption above the picture -->
+            <a-text value="${label}" align="center" color="#ffffff" width="2" position="0 ${h / 2 + 0.12} 0"></a-text>
+          </a-entity>`;
+      }
+
+      // ---------- Build the AR scene ----------
+      function startAR({ mindUrl, targets, showPreview, canSave }) {
+        document.getElementById("start").style.display = "none";
+        document.querySelectorAll(".ar-only").forEach((el) => (el.style.display = "block"));
+        document.getElementById("anims").style.display = "flex";
+        // Robot animation buttons only make sense when the robot is shown (your own picture)
+        const hasRobot = targets.some((t) => !t.model);
+        document.querySelectorAll(".robot-only").forEach((b) => (b.style.display = hasRobot ? "" : "none"));
+        if (showPreview) {
+          const preview = document.getElementById("preview");
+          preview.src = targets[0].image;
+          preview.style.display = "block";
+        }
+        if (canSave) {
+          const save = document.getElementById("save");
+          save.href = mindUrl;
+          save.style.display = "block";
+        }
+
+        document.getElementById("ar-container").innerHTML = `
+          <a-scene
+            mindar-image="imageTargetSrc: ${mindUrl}; maxTrack: 1; uiScanning: no; uiLoading: no"
+            color-space="sRGB"
+            renderer="colorManagement: true"
+            vr-mode-ui="enabled: false"
+            device-orientation-permission-ui="enabled: false"
+          >
+            <a-entity light="type: ambient; intensity: 0.8"></a-entity>
+            <a-entity light="type: directional; intensity: 1.2" position="0 2 3"></a-entity>
+            <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+            ${targets.map((t, i) => targetContent(i, t)).join("")}
+          </a-scene>`;
+
+        // Status label
+        const status = document.getElementById("status");
+        const scene = document.querySelector("a-scene");
+        const looking = "🔍 Point the camera at a picture";
+        scene.addEventListener("arReady", () => (status.textContent = looking));
+        scene.addEventListener("arError", () => (status.textContent = "❌ Camera error: use HTTPS or localhost and allow the camera"));
+        document.querySelectorAll(".target").forEach((el) => {
+          el.addEventListener("targetFound", () => {
+            status.textContent = `✅ Found: ${el.dataset.label}`;
+            el.querySelector(".pop").emit("pop"); // play the grow-in animation
+          });
+          el.addEventListener("targetLost", () => (status.textContent = looking));
+        });
+
+        // Screen / table mode
+        // - screen: picture is upright (laptop, phone, wall) -> model stands on the bottom edge, in front of it
+        // - table:  picture lies flat -> rotate 90° so the model's "up" points out of the picture
+        let mode = "screen";
+        const modeBtn = document.getElementById("mode");
+        function setMode(m) {
+          mode = m;
+          document.querySelectorAll(".placement").forEach((p) => {
+            const h = parseFloat(p.dataset.h);
+            p.setAttribute("rotation", m === "table" ? "90 0 0" : "0 0 0");
+            p.setAttribute("position", m === "table" ? "0 0 0" : `0 ${-h / 2} 0.15`);
+          });
+          modeBtn.textContent = m === "table" ? "🛋️ Table mode" : "🖥️ Screen mode";
+        }
+        modeBtn.addEventListener("click", () => setMode(mode === "screen" ? "table" : "screen"));
+        setMode("screen");
+
+        // Spin on/off
+        let spinning = true;
+        const spinBtn = document.getElementById("spin");
+        spinBtn.addEventListener("click", () => {
+          spinning = !spinning;
+          document.querySelectorAll(".spinner").forEach((sp) => {
+            if (spinning) sp.components.animation.play();
+            else sp.components.animation.pause();
+          });
+          spinBtn.textContent = spinning ? "⏸️ Stop spin" : "🔄 Spin";
+        });
+
+        // Animation buttons (apply to every robot)
+        const clipButtons = document.querySelectorAll("#anims button[data-clip]");
+        clipButtons.forEach((btn) => {
+          btn.addEventListener("click", () => {
+            document.querySelectorAll(".robot").forEach((r) => r.setAttribute("animation-mixer", { clip: btn.dataset.clip }));
+            clipButtons.forEach((b) => b.classList.toggle("active", b === btn));
+          });
+        });
+      }
+    </script>
+  </body>
+</html>
