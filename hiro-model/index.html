@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hiro Model</title>
+    <!-- A-Frame: 3D framework in HTML -->
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <!-- aframe-extras: gives us "animation-mixer" to play animations inside .glb files -->
+    <script src="https://cdn.jsdelivr.net/npm/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
+    <!-- AR.js: marker tracking for A-Frame -->
+    <script src="https://cdn.jsdelivr.net/npm/@ar-js-org/ar.js@3.4.5/aframe/build/aframe-ar.js"></script>
+
+    <script>
+      // fit-model: scales any model to a given size and stands it on the marker.
+      // Every .glb is made at a different scale (the fox is huge, the robot is small),
+      // so this saves guessing scale numbers by hand.
+      AFRAME.registerComponent("fit-model", {
+        schema: { size: { type: "number", default: 1.2 } },
+        init() {
+          this.el.addEventListener("model-loaded", () => {
+            const mesh = this.el.getObject3D("mesh");
+            const parent = mesh.parent;
+
+            // Measure the model on its own (without the marker's position/rotation)
+            parent.remove(mesh);
+            mesh.updateMatrixWorld(true);
+            const box = new THREE.Box3().setFromObject(mesh);
+            parent.add(mesh);
+
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+            const s = this.data.size / Math.max(size.x, size.y, size.z);
+
+            mesh.scale.multiplyScalar(s);
+            mesh.position.set(-center.x * s, -box.min.y * s, -center.z * s); // centered, feet on marker
+          });
+        },
+      });
+    </script>
+
+    <style>
+      body { margin: 0; overflow: hidden; font-family: -apple-system, sans-serif; }
+      .pill {
+        position: fixed; top: 12px; z-index: 10; padding: 6px 12px; border-radius: 14px;
+        font-size: 14px; text-decoration: none; background: rgba(0, 0, 0, 0.6); color: #fff;
+      }
+      #status { left: 50%; transform: translateX(-50%); white-space: nowrap; }
+      .bar {
+        position: fixed; left: 0; right: 0; z-index: 10; display: flex; gap: 8px;
+        padding: 0 16px; overflow-x: auto; justify-content: safe center;
+      }
+      #models { top: 52px; }
+      #anims { bottom: 16px; }
+      .bar button {
+        flex: 0 0 auto; padding: 8px 14px; border: 2px solid transparent; border-radius: 18px;
+        background: rgba(255, 255, 255, 0.85); font-size: 15px; cursor: pointer; color: #222;
+      }
+      .bar button.active { border-color: #ff3b7f; background: #fff; }
+    </style>
+  </head>
+  <body>
+    <a class="pill" href="../" style="left: 12px;">← Menu</a>
+    <a class="pill" href="../hiro-box/marker.html" target="_blank" style="right: 12px;">🎯 Marker</a>
+    <div class="pill" id="status">🎯 Point the camera at the Hiro marker</div>
+
+    <!-- Choose a model -->
+    <div class="bar" id="models">
+      <button data-model="robot">🤖 Robot</button>
+      <button data-model="fox">🦊 Fox</button>
+    </div>
+
+    <!-- Animation buttons are created automatically from the model's animations -->
+    <div class="bar" id="anims"></div>
+
+    <a-scene
+      embedded
+      arjs="sourceType: webcam; debugUIEnabled: false;"
+      vr-mode-ui="enabled: false"
+      renderer="logarithmicDepthBuffer: true; colorManagement: true;"
+    >
+      <!-- Load models once, up front -->
+      <a-assets>
+        <a-asset-item id="robot" src="models/robot.glb"></a-asset-item>
+        <a-asset-item id="fox" src="models/fox.glb"></a-asset-item>
+      </a-assets>
+
+      <!-- Lights so the model isn't flat -->
+      <a-entity light="type: ambient; intensity: 0.8"></a-entity>
+      <a-entity light="type: directional; intensity: 1.2" position="1 3 2"></a-entity>
+
+      <a-marker preset="hiro" id="marker">
+        <!--
+          gltf-model     = which .glb file to show
+          fit-model      = auto-size it to about 1.2 marker-widths
+          animation-mixer = play an animation clip that is stored inside the .glb
+        -->
+        <a-entity
+          id="model"
+          gltf-model="#robot"
+          fit-model="size: 1.2"
+          animation-mixer="clip: Dance; loop: repeat; crossFadeDuration: 0.3"
+        ></a-entity>
+      </a-marker>
+
+      <a-entity camera></a-entity>
+    </a-scene>
+
+    <script>
+      const model = document.getElementById("model");
+      const animBar = document.getElementById("anims");
+      const modelButtons = document.querySelectorAll("#models button");
+
+      // The animation each model starts with
+      const startClip = { robot: "Dance", fox: "Survey" };
+
+      // Switch to another model
+      function selectModel(name) {
+        modelButtons.forEach((b) => b.classList.toggle("active", b.dataset.model === name));
+        model.setAttribute("animation-mixer", { clip: startClip[name] });
+        // Use the file path, not "#robot": "#id" only works in the HTML attribute, not in setAttribute
+        model.setAttribute("gltf-model", "models/" + name + ".glb");
+      }
+      modelButtons.forEach((b) => b.addEventListener("click", () => selectModel(b.dataset.model)));
+      modelButtons[0].classList.add("active");
+
+      // When a model finishes loading, make one button per animation it contains
+      model.addEventListener("model-loaded", () => {
+        const clips = model.getObject3D("mesh").animations.map((a) => a.name);
+        const current = model.getAttribute("animation-mixer").clip;
+        animBar.innerHTML = "";
+        clips.forEach((clip) => {
+          const btn = document.createElement("button");
+          btn.textContent = clip;
+          btn.classList.toggle("active", clip === current);
+          btn.addEventListener("click", () => {
+            model.setAttribute("animation-mixer", { clip });
+            animBar.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === btn));
+          });
+          animBar.appendChild(btn);
+        });
+      });
+
+      // Status label
+      const status = document.getElementById("status");
+      const marker = document.getElementById("marker");
+      marker.addEventListener("markerFound", () => (status.textContent = "✅ Marker found"));
+      marker.addEventListener("markerLost", () => (status.textContent = "🎯 Point the camera at the Hiro marker"));
+    </script>
+  </body>
+</html>

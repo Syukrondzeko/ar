@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>My First WebAR</title>
+    <!-- A-Frame: 3D framework in HTML -->
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <!-- AR.js: adds marker tracking to A-Frame -->
+    <script src="https://cdn.jsdelivr.net/npm/@ar-js-org/ar.js@3.4.5/aframe/build/aframe-ar.js"></script>
+  </head>
+  <body style="margin: 0; overflow: hidden;">
+    <!-- Links on top of the camera view -->
+    <a href="../" style="position: fixed; top: 12px; left: 12px; z-index: 10; padding: 6px 12px; border-radius: 14px; font: 14px -apple-system, sans-serif; text-decoration: none; background: rgba(0,0,0,0.6); color: #fff;">← Menu</a>
+    <a href="marker.html" target="_blank" style="position: fixed; top: 12px; right: 12px; z-index: 10; padding: 6px 12px; border-radius: 14px; font: 14px -apple-system, sans-serif; text-decoration: none; background: rgba(0,0,0,0.6); color: #fff;">🎯 Marker</a>
+
+    <a-scene
+      embedded
+      arjs="sourceType: webcam; debugUIEnabled: false;"
+      vr-mode-ui="enabled: false"
+      renderer="logarithmicDepthBuffer: true;"
+    >
+      <!-- Content inside this marker appears on top of the Hiro pattern -->
+      <a-marker preset="hiro">
+        <!-- Spinning blue box -->
+        <a-box
+          position="0 0.5 0"
+          color="#4CC3D9"
+          animation="property: rotation; to: 0 360 0; loop: true; dur: 3000; easing: linear"
+        ></a-box>
+
+        <!-- Text above the box -->
+        <a-text
+          value="Hello AR!"
+          position="0 1.4 0"
+          align="center"
+          color="#FFFFFF"
+          scale="1.5 1.5 1.5"
+        ></a-text>
+      </a-marker>
+
+      <!-- The camera -->
+      <a-entity camera></a-entity>
+    </a-scene>
+  </body>
+</html>

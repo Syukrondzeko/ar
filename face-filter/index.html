@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Face Filters</title>
+    <!-- A-Frame: 3D framework in HTML -->
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <!-- MindAR: face tracking for A-Frame -->
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-face-aframe.prod.js"></script>
+    <style>
+      body { margin: 0; overflow: hidden; font-family: -apple-system, sans-serif; }
+
+      /* Status label at the top */
+      #status {
+        position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 10;
+        padding: 6px 14px; border-radius: 14px; font-size: 14px; white-space: nowrap;
+        background: rgba(0, 0, 0, 0.6); color: #fff;
+      }
+
+      /* Back link to the menu */
+      #back {
+        position: fixed; top: 12px; left: 12px; z-index: 10;
+        padding: 6px 12px; border-radius: 14px; font-size: 14px; text-decoration: none;
+        background: rgba(0, 0, 0, 0.6); color: #fff;
+      }
+
+      /* Filter picker at the bottom (scrolls sideways) */
+      #picker {
+        position: fixed; bottom: 16px; left: 0; right: 0; z-index: 10;
+        display: flex; gap: 10px; padding: 0 16px; overflow-x: auto;
+        justify-content: safe center;
+      }
+      #picker button {
+        flex: 0 0 auto; width: 72px; padding: 8px 0; border: 3px solid transparent;
+        border-radius: 16px; background: rgba(255, 255, 255, 0.85); cursor: pointer;
+        font-size: 12px; color: #222;
+      }
+      #picker button span { display: block; font-size: 28px; line-height: 1.2; }
+      #picker button.active { border-color: #ff3b7f; background: #fff; }
+    </style>
+  </head>
+  <body>
+    <a id="back" href="../">← Menu</a>
+    <div id="status">⏳ Loading camera and face model…</div>
+
+    <!-- One button per filter. data-filter must match a filter id below. -->
+    <div id="picker">
+      <button data-filter="none"><span>🚫</span>None</button>
+      <button data-filter="cool"><span>😎</span>Cool</button>
+      <button data-filter="cat"><span>🐱</span>Cat</button>
+      <button data-filter="crown"><span>👑</span>Royal</button>
+      <button data-filter="devil"><span>😈</span>Devil</button>
+      <button data-filter="angel"><span>😇</span>Angel</button>
+      <button data-filter="party"><span>✨</span>Party</button>
+      <button data-filter="vintage"><span>🥸</span>Vintage</button>
+      <button data-filter="noir"><span>🎬</span>Noir</button>
+    </div>
+
+    <a-scene
+      mindar-face
+      embedded
+      color-space="sRGB"
+      renderer="colorManagement: true"
+      vr-mode-ui="enabled: false"
+      device-orientation-permission-ui="enabled: false"
+    >
+      <a-camera active="false" position="0 0 0"></a-camera>
+
+      <!--
+        HOW FILTERS ARE BUILT
+        - Each filter is one <a-entity class="filter"> wrapper. Only the chosen one is visible.
+        - Inside, each mindar-face-target sticks to one point on the face:
+            168 = between the eyes   10 = top of forehead
+            1   = tip of nose        0  = upper lip      152 = chin
+        - The face is about 1 unit wide. x = left/right, y = up/down, z = toward (+) / away (-) from the face.
+        - data-video is an optional CSS filter applied to the camera image (color effects).
+      -->
+
+      <!-- 😎 COOL: sunglasses, top hat, clown nose -->
+      <a-entity class="filter" id="cool">
+        <a-entity mindar-face-target="anchorIndex: 168">
+          <a-entity position="0 0 0.05">
+            <a-torus position="-0.2 0 0" radius="0.13" radius-tubular="0.015" color="#111"></a-torus>
+            <a-circle position="-0.2 0 0" radius="0.13" color="#222" opacity="0.6"></a-circle>
+            <a-torus position="0.2 0 0" radius="0.13" radius-tubular="0.015" color="#111"></a-torus>
+            <a-circle position="0.2 0 0" radius="0.13" color="#222" opacity="0.6"></a-circle>
+            <a-cylinder position="0 0.02 0" rotation="0 0 90" radius="0.012" height="0.14" color="#111"></a-cylinder>
+          </a-entity>
+        </a-entity>
+        <a-entity mindar-face-target="anchorIndex: 10">
+          <a-entity position="0 0.05 -0.25">
+            <a-cylinder radius="0.55" height="0.03" color="#1a1a1a"></a-cylinder>
+            <a-cylinder position="0 0.28 0" radius="0.35" height="0.55" color="#1a1a1a"></a-cylinder>
+            <a-cylinder position="0 0.07 0" radius="0.355" height="0.08" color="#c0392b"></a-cylinder>
+          </a-entity>
+        </a-entity>
+        <a-entity mindar-face-target="anchorIndex: 1">
+          <a-sphere position="0 0 0.05" radius="0.09" color="#e74c3c"
+            animation="property: scale; from: 1 1 1; to: 1.2 1.2 1.2; dir: alternate; loop: true; dur: 600"></a-sphere>
+        </a-entity>
+      </a-entity>
+
+      <!-- 🐱 CAT: ears, pink nose, whiskers -->
+      <a-entity class="filter" id="cat">
+        <a-entity mindar-face-target="anchorIndex: 10">
+          <!-- Left ear (outer + pink inner) -->
+          <a-entity position="-0.32 0.22 -0.1" rotation="0 0 20">
+            <a-cone radius-bottom="0.16" radius-top="0" height="0.35" color="#555"></a-cone>
+            <a-cone position="0 -0.02 0.06" radius-bottom="0.09" radius-top="0" height="0.24" color="#ff9eb5"></a-cone>
+          </a-entity>
+          <!-- Right ear -->
+          <a-entity position="0.32 0.22 -0.1" rotation="0 0 -20">
+            <a-cone radius-bottom="0.16" radius-top="0" height="0.35" color="#555"></a-cone>
+            <a-cone position="0 -0.02 0.06" radius-bottom="0.09" radius-top="0" height="0.24" color="#ff9eb5"></a-cone>
+          </a-entity>
+        </a-entity>
+        <a-entity mindar-face-target="anchorIndex: 1">
+          <a-sphere position="0 0 0.03" radius="0.05" scale="1.3 0.9 1" color="#ff6f91"></a-sphere>
+          <!-- Whiskers: 3 per side -->
+          <a-cylinder position="-0.28 -0.04 0" rotation="0 0 85" radius="0.004" height="0.32" color="#fff"></a-cylinder>
+          <a-cylinder position="-0.28 -0.08 0" rotation="0 0 95" radius="0.004" height="0.32" color="#fff"></a-cylinder>
+          <a-cylinder position="-0.27 -0.12 0" rotation="0 0 105" radius="0.004" height="0.3" color="#fff"></a-cylinder>
+          <a-cylinder position="0.28 -0.04 0" rotation="0 0 -85" radius="0.004" height="0.32" color="#fff"></a-cylinder>
+          <a-cylinder position="0.28 -0.08 0" rotation="0 0 -95" radius="0.004" height="0.32" color="#fff"></a-cylinder>
+          <a-cylinder position="0.27 -0.12 0" rotation="0 0 -105" radius="0.004" height="0.3" color="#fff"></a-cylinder>
+        </a-entity>
+      </a-entity>
+
+      <!-- 👑 ROYAL: gold crown with jewels -->
+      <a-entity class="filter" id="crown">
+        <a-entity mindar-face-target="anchorIndex: 10">
+          <a-entity position="0 0.15 -0.2">
+            <!-- Band -->
+            <a-cylinder radius="0.38" height="0.18" open-ended="true" side="double"
+              color="#f1c40f" metalness="0.6" roughness="0.3"></a-cylinder>
+            <!-- Spikes with pearls -->
+            <a-cone position="0 0.17 0.38" radius-bottom="0.07" radius-top="0" height="0.16" color="#f1c40f" metalness="0.6" roughness="0.3"></a-cone>
+            <a-cone position="-0.19 0.17 0.33" radius-bottom="0.07" radius-top="0" height="0.16" color="#f1c40f" metalness="0.6" roughness="0.3"></a-cone>
+            <a-cone position="0.19 0.17 0.33" radius-bottom="0.07" radius-top="0" height="0.16" color="#f1c40f" metalness="0.6" roughness="0.3"></a-cone>
+            <a-cone position="-0.33 0.17 0.19" radius-bottom="0.07" radius-top="0" height="0.16" color="#f1c40f" metalness="0.6" roughness="0.3"></a-cone>
+            <a-cone position="0.33 0.17 0.19" radius-bottom="0.07" radius-top="0" height="0.16" color="#f1c40f" metalness="0.6" roughness="0.3"></a-cone>
+            <a-sphere position="0 0.26 0.38" radius="0.025" color="#fff"></a-sphere>
+            <a-sphere position="-0.19 0.26 0.33" radius="0.025" color="#fff"></a-sphere>
+            <a-sphere position="0.19 0.26 0.33" radius="0.025" color="#fff"></a-sphere>
+            <!-- Jewels on the band -->
+            <a-sphere position="0 0 0.39" radius="0.045" color="#e74c3c"></a-sphere>
+            <a-sphere position="-0.19 0 0.34" radius="0.035" color="#3498db"></a-sphere>
+            <a-sphere position="0.19 0 0.34" radius="0.035" color="#2ecc71"></a-sphere>
+          </a-entity>
+        </a-entity>
+      </a-entity>
+
+      <!-- 😈 DEVIL: red horns + red-tinted camera -->
+      <a-entity class="filter" id="devil" data-video="sepia(0.5) saturate(2.5) hue-rotate(-30deg) contrast(1.1)">
+        <a-entity mindar-face-target="anchorIndex: 10">
+          <a-cone position="-0.25 0.15 -0.05" rotation="0 0 25" radius-bottom="0.07" radius-top="0" height="0.3" color="#b30000"></a-cone>
+          <a-cone position="0.25 0.15 -0.05" rotation="0 0 -25" radius-bottom="0.07" radius-top="0" height="0.3" color="#b30000"></a-cone>
+        </a-entity>
+        <a-entity mindar-face-target="anchorIndex: 152">
+          <!-- Little pointy goatee -->
+          <a-cone position="0 -0.08 0.02" rotation="180 0 0" radius-bottom="0.06" radius-top="0" height="0.15" color="#2b0000"></a-cone>
+        </a-entity>
+      </a-entity>
+
+      <!-- 😇 ANGEL: floating glowing halo + soft bright camera -->
+      <a-entity class="filter" id="angel" data-video="brightness(1.15) contrast(0.9) saturate(1.2)">
+        <a-entity mindar-face-target="anchorIndex: 10">
+          <a-torus position="0 0.35 -0.15" rotation="90 0 0" radius="0.3" radius-tubular="0.025"
+            color="#ffd700" emissive="#ffd700" emissive-intensity="0.8"
+            animation="property: position; from: 0 0.32 -0.15; to: 0 0.4 -0.15; dir: alternate; loop: true; dur: 1200; easing: easeInOutSine"></a-torus>
+        </a-entity>
+      </a-entity>
+
+      <!-- ✨ PARTY: colorful shapes orbiting your head + punchy colors -->
+      <a-entity class="filter" id="party" data-video="saturate(1.6) contrast(1.1)">
+        <a-entity mindar-face-target="anchorIndex: 168">
+          <!-- This entity sits at the center of the head and spins -->
+          <a-entity position="0 0.1 -0.4" animation="property: rotation; to: 0 360 0; loop: true; dur: 4000; easing: linear">
+            <a-octahedron position="0.7 0 0" radius="0.07" color="#ff3b7f"></a-octahedron>
+            <a-octahedron position="0.35 0.15 0.6" radius="0.07" color="#ffd93b"></a-octahedron>
+            <a-octahedron position="-0.35 0 0.6" radius="0.07" color="#3bd1ff"></a-octahedron>
+            <a-octahedron position="-0.7 0.15 0" radius="0.07" color="#8aff3b"></a-octahedron>
+            <a-octahedron position="-0.35 0 -0.6" radius="0.07" color="#b23bff"></a-octahedron>
+            <a-octahedron position="0.35 0.15 -0.6" radius="0.07" color="#ff8a3b"></a-octahedron>
+          </a-entity>
+        </a-entity>
+      </a-entity>
+
+      <!-- 🥸 VINTAGE: mustache + monocle + old-photo camera -->
+      <a-entity class="filter" id="vintage" data-video="sepia(0.9) contrast(1.1) brightness(0.95)">
+        <a-entity mindar-face-target="anchorIndex: 0">
+          <a-sphere position="-0.08 0.05 0.03" rotation="0 0 -15" radius="0.08" scale="1.3 0.45 0.6" color="#3b2412"></a-sphere>
+          <a-sphere position="0.08 0.05 0.03" rotation="0 0 15" radius="0.08" scale="1.3 0.45 0.6" color="#3b2412"></a-sphere>
+        </a-entity>
+        <a-entity mindar-face-target="anchorIndex: 168">
+          <a-torus position="0.2 0 0.05" radius="0.12" radius-tubular="0.012" color="#c9a227" metalness="0.7" roughness="0.3"></a-torus>
+          <a-circle position="0.2 0 0.05" radius="0.12" color="#ffffff" opacity="0.15"></a-circle>
+        </a-entity>
+      </a-entity>
+
+      <!-- 🎬 NOIR: no 3D objects, just a black-and-white movie look -->
+      <a-entity class="filter" id="noir" data-video="grayscale(1) contrast(1.4) brightness(0.9)"></a-entity>
+    </a-scene>
+
+    <script>
+      const filters = document.querySelectorAll(".filter");
+      const buttons = document.querySelectorAll("#picker button");
+
+      // Show only the chosen filter, and apply its camera color effect
+      function selectFilter(id) {
+        filters.forEach((f) => f.setAttribute("visible", f.id === id));
+        buttons.forEach((b) => b.classList.toggle("active", b.dataset.filter === id));
+
+        const chosen = document.getElementById(id);
+        const video = document.querySelector("video"); // MindAR creates this when the camera starts
+        if (video) video.style.filter = (chosen && chosen.dataset.video) || "none";
+        currentFilter = id;
+      }
+
+      let currentFilter = "cool";
+      buttons.forEach((b) => b.addEventListener("click", () => selectFilter(b.dataset.filter)));
+      selectFilter(currentFilter);
+
+      // Status label
+      const status = document.getElementById("status");
+      const scene = document.querySelector("a-scene");
+      scene.addEventListener("arReady", () => {
+        status.textContent = "🔍 Looking for a face…";
+        selectFilter(currentFilter); // re-apply now that the camera video exists
+      });
+      scene.addEventListener("targetFound", () => (status.textContent = "✅ Face found"));
+      scene.addEventListener("targetLost", () => (status.textContent = "🔍 Looking for a face…"));
+      scene.addEventListener("arError", () => {
+        status.textContent = "❌ Camera error: use localhost and allow the camera";
+      });
+      if (!window.isSecureContext) {
+        status.textContent = "❌ Camera blocked: open via http://localhost:8000";
+      }
+    </script>
+  </body>
+</html>
