@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hand Control</title>
+    <!-- A-Frame: 3D framework in HTML -->
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <!-- aframe-extras: "animation-mixer" plays animations inside .glb files -->
+    <script src="https://cdn.jsdelivr.net/npm/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
+
+    <script>
+      // fit-model: scale any model so its height = size, standing on y = 0, centered (same idea as other projects)
+      AFRAME.registerComponent("fit-model", {
+        schema: { size: { type: "number", default: 1.6 } },
+        init() {
+          this.el.addEventListener("model-loaded", () => {
+            const mesh = this.el.getObject3D("mesh");
+            const parent = mesh.parent;
+            parent.remove(mesh);
+            mesh.updateMatrixWorld(true);
+            const box = new THREE.Box3().setFromObject(mesh);
+            parent.add(mesh);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+            const s = this.data.size / size.y;
+            mesh.scale.multiplyScalar(s);
+            mesh.position.set(-center.x * s, -box.min.y * s, -center.z * s);
+          });
+        },
+      });
+    </script>
+
+    <style>
+      body { margin: 0; overflow: hidden; background: #000; font-family: -apple-system, sans-serif; }
+
+      /* Layers, bottom to top: camera video -> 3D scene -> hand drawing -> buttons */
+      #video {
+        position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover;
+        transform: scaleX(-1); /* mirror, so it feels like a mirror */
+        z-index: 0;
+      }
+      a-scene { position: fixed !important; inset: 0; width: 100% !important; height: 100% !important; z-index: 1; }
+      #hands { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
+
+      .pill {
+        position: fixed; top: 12px; z-index: 10; padding: 6px 12px; border-radius: 14px;
+        font-size: 14px; text-decoration: none; background: rgba(0, 0, 0, 0.6); color: #fff;
+        border: none; cursor: pointer;
+      }
+      #status { left: 50%; transform: translateX(-50%); white-space: nowrap; }
+
+      /* Model picker */
+      #models {
+        position: fixed; bottom: 16px; left: 0; right: 0; z-index: 10;
+        display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; padding: 0 16px;
+      }
+      #models button {
+        padding: 8px 14px; border: 2px solid transparent; border-radius: 18px;
+        background: rgba(255, 255, 255, 0.85); font-size: 15px; cursor: pointer; color: #222;
+      }
+      #models button.active { border-color: #ff3b7f; background: #fff; }
+
+      /* Gesture guide */
+      #guide {
+        position: fixed; left: 12px; top: 56px; z-index: 10; max-width: 230px;
+        background: rgba(0, 0, 0, 0.6); color: #fff; border-radius: 12px; padding: 10px 12px; font-size: 13px;
+      }
+      #guide summary { cursor: pointer; font-weight: 600; }
+      #guide ul { margin: 8px 0 0; padding-left: 16px; }
+      #guide li { margin: 3px 0; }
+
+      /* Big emoji when a hand sign is recognized */
+      #toast {
+        position: fixed; top: 45%; left: 50%; transform: translate(-50%, -50%) scale(0.6);
+        z-index: 10; font-size: 64px; text-align: center; color: #fff; opacity: 0;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6); transition: opacity 0.2s, transform 0.2s; pointer-events: none;
+      }
+      #toast small { display: block; font-size: 18px; }
+      #toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    </style>
+  </head>
+  <body>
+    <video id="video" autoplay muted playsinline></video>
+
+    <a-scene embedded renderer="alpha: true; colorManagement: true" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
+      <a-entity light="type: ambient; intensity: 0.9"></a-entity>
+      <a-entity light="type: directional; intensity: 1.3" position="1 3 2"></a-entity>
+      <a-entity id="cam" camera position="0 0 0" look-controls="enabled: false" wasd-controls="enabled: false"></a-entity>
+
+      <!--
+        holder: moved / scaled / rotated by your hands
+          wobble: shakes when you poke a tower
+            model: the 3D model itself
+      -->
+      <a-entity id="holder" position="0 -0.8 -3">
+        <a-entity id="wobble">
+          <a-entity id="model" fit-model="size: 1.6"></a-entity>
+        </a-entity>
+      </a-entity>
+    </a-scene>
+
+    <canvas id="hands"></canvas>
+
+    <a class="pill" href="../" style="left: 12px;">← Menu</a>
+    <div class="pill" id="status">⏳ Loading hand AI…</div>
+    <button class="pill" id="reset" style="right: 12px;">↺ Reset</button>
+
+    <details id="guide" open>
+      <summary>✋ Gestures</summary>
+      <ul>
+        <li>🤏 <b>Pinch</b> on the model + move = grab &amp; move</li>
+        <li>🤏🤏 <b>Pinch both hands</b>, pull apart = zoom</li>
+        <li>🤏🤏 <b>Pinch both hands</b>, turn = rotate</li>
+        <li>☝️ <b>Poke</b> the model = reaction</li>
+        <li id="signs-robot">Robot: ✋ wave · 👍 · 👎 · ✌️ dance · ✊ punch · ☝️ jump · 🤟 yes</li>
+        <li id="signs-fox" style="display: none;">Fox: ✋ walk · ✌️ run · ✊ sit and look</li>
+      </ul>
+    </details>
+
+    <div id="toast"></div>
+
+    <div id="models">
+      <button data-model="robot" class="active">🤖 Robot</button>
+      <button data-model="fox">🦊 Fox</button>
+      <button data-model="eiffel">🗼 Eiffel</button>
+      <button data-model="pisa">🗼 Pisa</button>
+    </div>
+
+    <script type="module">
+      import { FilesetResolver, GestureRecognizer } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+      // ================= MODELS =================
+      // idle = animation that plays normally; signs = hand sign -> animation; poke = animation when poked
+      const MODELS = {
+        robot: {
+          src: "../hiro-model/models/robot.glb", idle: "Idle", poke: "Jump",
+          signs: {
+            Open_Palm: ["✋", "Wave", "Hello!"], Thumb_Up: ["👍", "ThumbsUp", "Thumbs up!"],
+            Thumb_Down: ["👎", "No", "No no no"], Victory: ["✌️", "Dance", "Dance time!"],
+            Closed_Fist: ["✊", "Punch", "Punch!"], Pointing_Up: ["☝️", "Jump", "Jump!"],
+            ILoveYou: ["🤟", "Yes", "Yes!"],
+          },
+        },
+        fox: {
+          src: "../hiro-model/models/fox.glb", idle: "Survey", poke: "Run",
+          signs: { Open_Palm: ["✋", "Walk", "Walk"], Victory: ["✌️", "Run", "Run!"], Closed_Fist: ["✊", "Survey", "Look around"] },
+        },
+        eiffel: { src: "../image-tracking/models/eiffel.glb" },
+        pisa: { src: "../image-tracking/models/pisa.glb" },
+      };
+      const LOOPING = ["Dance", "Walk", "Run"]; // these keep playing; the rest play once, then back to idle
+
+      const holder = document.getElementById("holder");
+      const wobble = document.getElementById("wobble");
+      const model = document.getElementById("model");
+      const status = document.getElementById("status");
+      let current = "robot";
+
+      function selectModel(name) {
+        current = name;
+        document.querySelectorAll("#models button").forEach((b) => b.classList.toggle("active", b.dataset.model === name));
+        document.getElementById("signs-robot").style.display = name === "robot" ? "" : "none";
+        document.getElementById("signs-fox").style.display = name === "fox" ? "" : "none";
+        resetPose();
+        const m = MODELS[name];
+        if (m.idle) model.setAttribute("animation-mixer", { clip: m.idle, loop: "repeat", crossFadeDuration: 0.3 });
+        else model.removeAttribute("animation-mixer");
+        model.setAttribute("gltf-model", m.src);
+      }
+      document.querySelectorAll("#models button").forEach((b) => b.addEventListener("click", () => selectModel(b.dataset.model)));
+
+      function resetPose() {
+        holder.object3D.position.set(0, -0.8, -3);
+        holder.object3D.scale.set(1, 1, 1);
+        holder.object3D.rotation.set(0, 0, 0);
+      }
+      document.getElementById("reset").addEventListener("click", resetPose);
+
+      // Play an animation; one-shot animations go back to idle when finished
+      function play(clip) {
+        const m = MODELS[current];
+        if (!m.idle) return;
+        const loop = LOOPING.includes(clip) ? "repeat" : "once";
+        model.setAttribute("animation-mixer", { clip, loop, crossFadeDuration: 0.2 });
+      }
+      model.addEventListener("animation-finished", () => {
+        const m = MODELS[current];
+        if (m.idle) model.setAttribute("animation-mixer", { clip: m.idle, loop: "repeat", crossFadeDuration: 0.3 });
+      });
+
+      selectModel("robot");
+
+      // ================= CAMERA =================
+      const video = document.getElementById("video");
+      try {
+        video.srcObject = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+        await new Promise((r) => (video.onloadedmetadata = r));
+        await video.play();
+      } catch (err) {
+        status.textContent = "❌ Camera error: use localhost or HTTPS and allow the camera";
+        throw err;
+      }
+
+      // ================= HAND AI (MediaPipe Gesture Recognizer) =================
+      // It finds 21 points on each hand AND recognizes hand signs (👍 ✌️ ✋ ✊ ☝️ 👎 🤟).
+      const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+      async function createRecognizer(delegate) {
+        return GestureRecognizer.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task",
+            delegate,
+          },
+          runningMode: "VIDEO",
+          numHands: 2,
+        });
+      }
+      let recognizer;
+      try { recognizer = await createRecognizer("GPU"); } catch { recognizer = await createRecognizer("CPU"); }
+      status.textContent = "✋ Show your hand to the camera";
+
+      // ================= SCREEN <-> 3D HELPERS =================
+      const canvas = document.getElementById("hands");
+      const ctx = canvas.getContext("2d");
+      const camera = () => document.querySelector("a-scene").camera;
+
+      // Hand points are 0..1 in the camera image. The video is mirrored and cropped to fill the
+      // screen (object-fit: cover), so convert them to screen pixels the same way.
+      function toScreen(p) {
+        const W = innerWidth, H = innerHeight;
+        const va = video.videoWidth / video.videoHeight, sa = W / H;
+        let dw, dh;
+        if (va > sa) { dh = H; dw = H * va; } else { dw = W; dh = W / va; }
+        const ox = (dw - W) / 2, oy = (dh - H) / 2;
+        return { x: (1 - p.x) * dw - ox, y: p.y * dh - oy };
+      }
+
+      // Screen pixel -> point in 3D on the flat plane where the model is (same depth as the model)
+      const raycaster = new THREE.Raycaster();
+      function screenTo3D(sx, sy, z) {
+        const ndc = new THREE.Vector2((sx / innerWidth) * 2 - 1, -(sy / innerHeight) * 2 + 1);
+        raycaster.setFromCamera(ndc, camera());
+        const out = new THREE.Vector3();
+        raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -z), out);
+        return out;
+      }
+
+      // The model's outline on screen (a rectangle), used to check if your finger is "on" it
+      function modelScreenRect() {
+        const box = new THREE.Box3().setFromObject(model.object3D);
+        if (box.isEmpty()) return null;
+        let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+        for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+          const v = new THREE.Vector3(x, y, z).project(camera());
+          const sx = (v.x + 1) / 2 * innerWidth, sy = (1 - v.y) / 2 * innerHeight;
+          x1 = Math.min(x1, sx); y1 = Math.min(y1, sy); x2 = Math.max(x2, sx); y2 = Math.max(y2, sy);
+        }
+        return { x1, y1, x2, y2 };
+      }
+      const inside = (p, r, pad = 30) => r && p.x > r.x1 - pad && p.x < r.x2 + pad && p.y > r.y1 - pad && p.y < r.y2 + pad;
+      const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+      // ================= GESTURE LOGIC =================
+      // Landmark numbers: 0 wrist, 4 thumb tip, 6 index middle joint, 8 index tip, 9 middle finger base
+      const hands = [{}, {}]; // remembered state per hand
+      let grab = null;        // one-hand grab
+      let twoHand = null;     // two-hand zoom/rotate
+      let sign = { name: null, since: 0, fired: null, lastFire: 0 };
+      let lastPoke = 0;
+
+      function processResults(result, now = performance.now()) {
+        const lms = result.landmarks || [];
+        const pts = lms.map((hand) => hand.map(toScreen));
+
+        // --- pinch detection per hand (with hysteresis so it doesn't flicker) ---
+        const pinches = pts.map((p, i) => {
+          const size = dist(p[0], p[9]) || 1;
+          const ratio = dist(p[4], p[8]) / size;
+          const st = hands[i] || (hands[i] = {});
+          st.pinching = st.pinching ? ratio < 0.45 : ratio < 0.3;
+          return st.pinching ? { x: (p[4].x + p[8].x) / 2, y: (p[4].y + p[8].y) / 2 } : null;
+        });
+        for (let i = pts.length; i < 2; i++) hands[i] = {};
+        const active = pinches.filter(Boolean);
+        const pos = holder.object3D.position;
+
+        if (active.length === 2) {
+          // --- two hands: zoom (distance) + rotate (angle) ---
+          grab = null;
+          const [a, b] = active;
+          const d = dist(a, b), angle = Math.atan2(b.y - a.y, b.x - a.x);
+          if (!twoHand) twoHand = { d, angle, scale: holder.object3D.scale.x, rot: holder.object3D.rotation.y };
+          const s = Math.min(4, Math.max(0.25, twoHand.scale * d / twoHand.d));
+          holder.object3D.scale.set(s, s, s);
+          holder.object3D.rotation.y = twoHand.rot + (angle - twoHand.angle) * 1.5;
+          status.textContent = "🤏🤏 Zoom & rotate";
+        } else {
+          twoHand = null;
+          if (active.length === 1) {
+            // --- one hand: grab when the pinch starts on the model, then follow the hand ---
+            const p = active[0];
+            if (!grab && inside(p, modelScreenRect())) {
+              const hit = screenTo3D(p.x, p.y, pos.z);
+              grab = { offset: pos.clone().sub(hit) };
+            }
+            if (grab) {
+              const hit = screenTo3D(p.x, p.y, pos.z);
+              pos.set(hit.x + grab.offset.x, hit.y + grab.offset.y, pos.z);
+              status.textContent = "🤏 Grabbed!";
+            }
+          } else {
+            grab = null;
+          }
+        }
+        if (!active.length) status.textContent = pts.length ? `✋ ${pts.length} hand${pts.length > 1 ? "s" : ""}` : "✋ Show your hand to the camera";
+
+        // --- poke: index fingertip (not pinching, finger straight) touches the model ---
+        const rect = modelScreenRect();
+        let poking = false;
+        pts.forEach((p, i) => {
+          const straight = dist(p[8], p[0]) > dist(p[6], p[0]) * 1.15;
+          if (!hands[i].pinching && straight && inside(p[8], rect, 0)) {
+            poking = true;
+            if (now - lastPoke > 1500 && !grab && !twoHand) {
+              lastPoke = now;
+              poke();
+            }
+          }
+        });
+
+        // --- hand signs: must be held for 0.4 s, then fire once ---
+        const g = (result.gestures || []).map((c) => c[0]).find((c) => c && c.score > 0.6 && c.categoryName !== "None");
+        const name = active.length || poking ? null : g ? g.categoryName : null;
+        if (name !== sign.name) sign = { ...sign, name, since: now };
+        if (!name) sign.fired = null;
+        else if (now - sign.since > 400 && sign.fired !== name && now - sign.lastFire > 1200) {
+          sign.fired = name;
+          sign.lastFire = now;
+          const reaction = (MODELS[current].signs || {})[name];
+          if (reaction) {
+            showToast(reaction[0], reaction[2]);
+            play(reaction[1]);
+          }
+        }
+
+        drawHands(pts, pinches);
+      }
+
+      function poke() {
+        const m = MODELS[current];
+        if (m.poke) {
+          showToast("☝️", "Hey!");
+          play(m.poke);
+        } else {
+          // Towers have no animations, so make them wobble
+          showToast("☝️", "Wobble!");
+          wobble.setAttribute("animation__wobble", {
+            property: "rotation", from: "0 0 6", to: "0 0 -6", dir: "alternate", loop: 4, dur: 110, easing: "easeInOutSine",
+          });
+          setTimeout(() => { wobble.removeAttribute("animation__wobble"); wobble.object3D.rotation.set(0, 0, 0); }, 600);
+        }
+      }
+
+      let toastTimer;
+      function showToast(emoji, text) {
+        const t = document.getElementById("toast");
+        t.innerHTML = `${emoji}<small>${text}</small>`;
+        t.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => t.classList.remove("show"), 1000);
+      }
+
+      // ================= DRAW HANDS =================
+      const BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+                     [9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];
+      function drawHands(pts, pinches) {
+        const dpr = devicePixelRatio || 1;
+        if (canvas.width !== innerWidth * dpr) { canvas.width = innerWidth * dpr; canvas.height = innerHeight * dpr; }
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, innerWidth, innerHeight);
+        pts.forEach((p, i) => {
+          ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 3;
+          BONES.forEach(([a, b]) => { ctx.beginPath(); ctx.moveTo(p[a].x, p[a].y); ctx.lineTo(p[b].x, p[b].y); ctx.stroke(); });
+          p.forEach((q, j) => {
+            const tip = [4, 8, 12, 16, 20].includes(j);
+            ctx.fillStyle = tip ? "#ff3b7f" : "#ffffff";
+            ctx.beginPath(); ctx.arc(q.x, q.y, tip ? 7 : 4, 0, Math.PI * 2); ctx.fill();
+          });
+          if (pinches[i]) { // glowing pinch point
+            ctx.fillStyle = grab || twoHand ? "#2ecc71" : "#ffd93b";
+            ctx.beginPath(); ctx.arc(pinches[i].x, pinches[i].y, 14, 0, Math.PI * 2); ctx.fill();
+          }
+        });
+      }
+
+      // ================= MAIN LOOP =================
+      let lastTime = -1;
+      function loop() {
+        if (video.currentTime !== lastTime && !window.handControl?.paused) {
+          lastTime = video.currentTime;
+          processResults(recognizer.recognizeForVideo(video, performance.now()));
+        }
+        requestAnimationFrame(loop);
+      }
+      loop();
+
+      // For testing in the browser console: window.handControl.processResults(fakeResult)
+      window.handControl = { processResults, selectModel };
+    </script>
+  </body>
+</html>
